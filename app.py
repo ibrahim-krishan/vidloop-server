@@ -4,7 +4,7 @@ from flask import Flask, request, jsonify
 import yt_dlp
 
 app = Flask(__name__)
-VERSION = "v4.0"
+VERSION = "v5.0"
 
 def clean_url(url):
     url = url.strip()
@@ -34,12 +34,22 @@ def get_url():
         'quiet': True,
         'no_warnings': True,
         'geo_bypass': True,
+        # ✅ الحل الرئيسي لخطأ bot detection
         'extractor_args': {
+            'youtube': {
+                'player_client': ['web', 'android'],
+                'player_skip': ['webpage', 'config'],
+            },
             'tiktok': {
                 'app_name': ['trill'],
                 'app_version': ['34.1.2'],
                 'manifest_app_version': ['2023401020'],
             }
+        },
+        # ✅ headers تشبه المتصفح الحقيقي
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+            'Accept-Language': 'en-US,en;q=0.9',
         },
     }
 
