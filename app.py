@@ -5,22 +5,22 @@ import yt_dlp
 
 app = Flask(__name__)
 
+# ✅ رقم الإصدار — غيّره في كل مرة تعدّل الكود
+VERSION = "v3.0"
+
 def clean_url(url):
-    """تنظيف الرابط وإزالة البارامترات الزائدة"""
     url = url.strip()
-    
-    # ✅ إزالة lc= (رابط تعليق يوتيوب) وأي بارامتر بعده
+    # حذف بارامتر lc (التعليقات) وكل ما بعده
     url = re.sub(r'[&?]lc=[^&]*', '', url)
-    
-    # ✅ إزالة بارامترات زائدة شائعة
     url = re.sub(r'[&?]si=[^&]*', '', url)
     url = re.sub(r'[&?]feature=[^&]*', '', url)
     url = re.sub(r'[&?]pp=[^&]*', '', url)
-    
-    # ✅ تنظيف & أو ? في نهاية الرابط
     url = re.sub(r'[&?]+$', '', url)
-    
     return url
+
+@app.route('/debug')
+def debug():
+    return jsonify({"version": VERSION, "yt_dlp": yt_dlp.version.__version__})
 
 @app.route('/get_url', methods=['GET'])
 def get_url():
@@ -28,7 +28,6 @@ def get_url():
     if not video_url:
         return jsonify({"error": "No URL"}), 400
 
-    # ✅ نظف الرابط أولاً
     video_url = clean_url(video_url)
 
     ydl_opts = {
@@ -50,7 +49,7 @@ def get_url():
             formats_list = []
 
             for f in info.get('formats', []):
-                url = f.get('url', '')
+                f_url = f.get('url', '')
                 acodec = f.get('acodec', 'none')
                 vcodec = f.get('vcodec', 'none')
                 height = f.get('height')
@@ -59,19 +58,18 @@ def get_url():
                 has_video = vcodec and vcodec != 'none'
                 has_audio = acodec and acodec != 'none'
 
-                if has_video and has_audio and url:
+                if has_video and has_audio and f_url:
                     formats_list.append({
                         "resolution": height or 0,
                         "label": f"{height}p" if height else ext.upper() or "Best",
-                        "url": url
+                        "url": f_url
                     })
 
-            # Fallback
             if not formats_list:
                 direct = info.get('url')
                 if direct:
                     formats_list.append({
-                        "resolution": info.get('height', 0),
+                        "resolution": info.get('height', 0) or 0,
                         "label": "Best Available",
                         "url": direct
                     })
