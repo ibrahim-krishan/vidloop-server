@@ -1,69 +1,71 @@
-app.route('/get_direct', methods=['GET'])
-def get_direct():
+import os
+import tempfile
+import shutil
+from flask import Flask, request, jsonify, send_file
+import yt_dlp
+
+app = Flask(__name__)
+
+@app.route('/get_url', methods=['GET'])
+def get_url():
     video_url = request.args.get('url')
-    format_id = request.args.get('format_id', 'best')
-
     if not video_url:
-        return jsonify({"error": "No URL"}), 400
+        return jsonify({"error": "رابط الفيديو مطلوب"}), 400
 
-    video_url = normalize_url(video_url)
-
+    ydl_opts = {
+        'quiet': True,
+        'no_warnings': True,
+        'extract_flat': True,
+    }
     try:
-        # ✅ أضف هذه الخيارات لتجاوز مشاكل YouTube
-        ydl_opts = {
-            'quiet': True,
-            'no_warnings': True,
-            'extractor_args': {
-                'youtube': {
-                    'player_client': ['android', 'web'],  # ← مهم جداً
-                }
-            },
-            'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36'
-            }
-        }
-
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(video_url, download=False)
-
-        selected_url = None
-        selected_format = None
-
-        # ✅ البحث بـ format_id أو fallback لأقرب جودة
-        for f in info.get('formats', []):
-            if f.get('format_id') == format_id:
-                selected_url = f.get('url')
-                selected_format = f
-                break
-
-        # fallback: ابحث عن أفضل فورمات mp4 مدمجة (video+audio)
-        if not selected_url:
+            formats_list = []
+            # استخراج الجودات التي تحتوي على فيديو وصوت معاً بصيغة mp4
             for f in info.get('formats', []):
-                if (f.get('vcodec') != 'none' and 
-                    f.get('acodec') != 'none' and
-                    f.get('ext') == 'mp4'):
-                    selected_url = f.get('url')
-                    break
-
-        # fallback نهائي
-        if not selected_url:
-            selected_url = info.get('url')
-
-        if not selected_url:
-            return jsonify({"error": "لم يتم العثور على رابط مباشر"}), 404
-
-        return jsonify({
-            "direct_url": selected_url,
-            "title": info.get("title", "video"),
-            "ext": selected_format.get('ext', 'mp4') if selected_format else 'mp4'
-        })
-
+                if f.get('ext') == 'mp4' and f.get('acodec') != 'none' and f.get('vcodec') != 'none':
+                    res = f.get('height')
+                    if res:
+                        formats_list.append({
+                            "resolution": res,
+                            "label": f"{res}p High Quality",
+                            "format_id": f.get('format_id')
+                        })
+            
+            formats_list.sort(key=lambda x: x['resolution'], reverse=True)
+            return jsonify({"formats": formats_list})
     except Exception as e:
-        import traceback
-        tb = traceback.format_exc()
-        print(tb)
-        # ✅ أرجع تفاصيل الخطأ للتشخيص
-        return jsonify({
-            "error": str(e),
-            "details": tb.split('\n')[-3]  # السطر المسبب للخطأ
-        }), 500
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/download', methods=['GET'])
+def download_video():
+    video_url = request.args.get('url')
+    format_id = request.args.get('format_id', 'best')
+    
+    if not video_url:
+        return jsonify({"error": "رابط الفيديو مطلوب"}), 400
+
+    # استخدام مجلد مؤقت آمن
+    tmp_dir = tempfile.mkdtemp()
+    try:
+        output_path = os.path.join(tmp_dir, 'video.mp4')
+        ydl_opts = {
+            'format': format_id,
+            'outtmpl': output_path,
+            'quiet': True,
+            'no_warnings': True,
+        }
+        
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([video_url])
+        
+        return send_file(output_path, as_attachment=True, download_name="video.mp4")
+    
+    except Exception as e:
+        return jsonify({"error": f"فشل التحميل: {str(e)}"}), 500
+    # ملاحظة: سيتم تنظيف المجلدات المؤقتة بواسطة نظام التشغيل لاحقاً
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
+                       
