@@ -31,32 +31,34 @@ def get_url():
                 format_id = f.get('format_id', '')
                 ext = f.get('ext', '')
 
-                # ✅ نقبل أي صيغة تحتوي فيديو + صوت بأي امتداد
-                if vcodec == 'none' or acodec == 'none':
+                # نتجاهل الصوت فقط بدون فيديو
+                if vcodec == 'none':
                     continue
                 if not res or not format_id:
                     continue
-                # تجنب تكرار نفس الدقة
                 if res in seen_res:
                     continue
                 seen_res.add(res)
+
+                # نحدد إذا الصيغة تحتاج دمج أم لا
+                needs_merge = (acodec == 'none')
 
                 formats_list.append({
                     "resolution": res,
                     "label": f"{res}p",
                     "format_id": format_id,
+                    "needs_merge": needs_merge,
                     "ext": ext
                 })
 
-            # ترتيب من الأعلى للأقل
             formats_list.sort(key=lambda x: x['resolution'], reverse=True)
 
-            # Fallback: إذا ما لقينا شيء، نرجع "best"
             if not formats_list:
                 formats_list.append({
                     "resolution": 0,
                     "label": "Best Available",
                     "format_id": "best",
+                    "needs_merge": False,
                     "ext": "mp4"
                 })
 
@@ -78,26 +80,29 @@ def download_video():
         tmp_dir = tempfile.mkdtemp()
         output_template = os.path.join(tmp_dir, 'video.%(ext)s')
 
+        # إذا الصيغة تحتاج دمج نضيف bestaudio، وإلا نحملها مباشرة
+        fmt = f'{format_id}+bestaudio[ext=m4a]/best[ext=mp4]/best'
+
         ydl_opts = {
-            # إذا الصيغة تحتوي فيديو بدون صوت، يدمجها تلقائياً
-            'format': f'{format_id}+bestaudio/best[ext=mp4]/best',
+            'format': fmt,
             'outtmpl': output_template,
             'quiet': True,
             'no_warnings': True,
-            # دمج الفيديو والصوت إذا كانا منفصلين
             'merge_output_format': 'mp4',
         }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(video_url, download=True)
             filename = ydl.prepare_filename(info)
-            # تأكد من امتداد mp4 بعد الدمج
-            if not filename.endswith('.mp4'):
+            # بعد الدمج الامتداد يصبح mp4
+            if not os.path.exists(filename):
                 filename = filename.rsplit('.', 1)[0] + '.mp4'
 
+        # إذا ما زال غير موجود، ابحث في المجلد المؤقت
         if not os.path.exists(filename):
-            # ابحث عن أي ملف في المجلد المؤقت
-            files = os.listdir(tmp_dir)
+            files = [f for f in os.listdir(tmp_dir) if f.endswith('.mp4')]
+            if not files:
+                files = os.listdir(tmp_dir)
             if files:
                 filename = os.path.join(tmp_dir, files[0])
             else:
@@ -117,4 +122,4 @@ def download_video():
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
-        
+    
