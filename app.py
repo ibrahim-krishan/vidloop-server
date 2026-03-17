@@ -4,7 +4,7 @@ from flask import Flask, request, jsonify
 import yt_dlp
 
 app = Flask(__name__)
-VERSION = "v5.0"
+VERSION = "v6.0"
 
 def clean_url(url):
     url = url.strip()
@@ -30,68 +30,70 @@ def get_url():
 
     video_url = clean_url(video_url)
 
-    ydl_opts = {
-        'quiet': True,
-        'no_warnings': True,
-        'geo_bypass': True,
-        # ✅ الحل الرئيسي لخطأ bot detection
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['web', 'android'],
-                'player_skip': ['webpage', 'config'],
+    clients = ['android', 'ios', 'web_creator', 'mweb']
+    last_error = ""
+
+    for client in clients:
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'geo_bypass': True,
+            'extractor_args': {
+                'youtube': {
+                    'player_client': [client],
+                },
+                'tiktok': {
+                    'app_name': ['trill'],
+                    'app_version': ['34.1.2'],
+                    'manifest_app_version': ['2023401020'],
+                }
             },
-            'tiktok': {
-                'app_name': ['trill'],
-                'app_version': ['34.1.2'],
-                'manifest_app_version': ['2023401020'],
-            }
-        },
-        # ✅ headers تشبه المتصفح الحقيقي
-        'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-            'Accept-Language': 'en-US,en;q=0.9',
-        },
-    }
+            'http_headers': {
+                'User-Agent': 'com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip',
+            },
+        }
 
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(video_url, download=False)
-            formats_list = []
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(video_url, download=False)
+                formats_list = []
 
-            for f in info.get('formats', []):
-                f_url = f.get('url', '')
-                acodec = f.get('acodec', 'none')
-                vcodec = f.get('vcodec', 'none')
-                height = f.get('height')
-                ext = f.get('ext', '')
+                for f in info.get('formats', []):
+                    f_url = f.get('url', '')
+                    acodec = f.get('acodec', 'none')
+                    vcodec = f.get('vcodec', 'none')
+                    height = f.get('height')
+                    ext = f.get('ext', '')
 
-                has_video = vcodec and vcodec != 'none'
-                has_audio = acodec and acodec != 'none'
+                    has_video = vcodec and vcodec != 'none'
+                    has_audio = acodec and acodec != 'none'
 
-                if has_video and has_audio and f_url:
-                    formats_list.append({
-                        "resolution": height or 0,
-                        "label": f"{height}p" if height else ext.upper() or "Best",
-                        "url": f_url
-                    })
+                    if has_video and has_audio and f_url:
+                        formats_list.append({
+                            "resolution": height or 0,
+                            "label": f"{height}p" if height else ext.upper() or "Best",
+                            "url": f_url
+                        })
 
-            if not formats_list:
-                direct = info.get('url')
-                if direct:
-                    formats_list.append({
-                        "resolution": info.get('height', 0) or 0,
-                        "label": "Best Available",
-                        "url": direct
-                    })
+                if not formats_list:
+                    direct = info.get('url')
+                    if direct:
+                        formats_list.append({
+                            "resolution": info.get('height', 0) or 0,
+                            "label": "Best Available",
+                            "url": direct
+                        })
 
-            if not formats_list:
-                return jsonify({"error": "لم نجد أي رابط"}), 404
+                if formats_list:
+                    formats_list.sort(key=lambda x: x['resolution'], reverse=True)
+                    return jsonify({"formats": formats_list, "client_used": client})
 
-            formats_list.sort(key=lambda x: x['resolution'], reverse=True)
-            return jsonify({"formats": formats_list})
+        except Exception as e:
+            last_error = str(e)
+            continue
 
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    return jsonify({"error": last_error}), 500
+
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
