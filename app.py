@@ -1,22 +1,22 @@
 import os
-import re
+from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 from flask import Flask, request, jsonify
 import yt_dlp
 
 app = Flask(__name__)
-
-# ✅ رقم الإصدار — غيّره في كل مرة تعدّل الكود
-VERSION = "v3.0"
+VERSION = "v4.0"
 
 def clean_url(url):
     url = url.strip()
-    # حذف بارامتر lc (التعليقات) وكل ما بعده
-    url = re.sub(r'[&?]lc=[^&]*', '', url)
-    url = re.sub(r'[&?]si=[^&]*', '', url)
-    url = re.sub(r'[&?]feature=[^&]*', '', url)
-    url = re.sub(r'[&?]pp=[^&]*', '', url)
-    url = re.sub(r'[&?]+$', '', url)
-    return url
+    try:
+        parsed = urlparse(url)
+        params = parse_qs(parsed.query, keep_blank_values=True)
+        remove_keys = {'lc', 'si', 'feature', 'pp', 'ab_channel', 'app'}
+        filtered = {k: v for k, v in params.items() if k not in remove_keys}
+        new_query = urlencode(filtered, doseq=True)
+        return urlunparse(parsed._replace(query=new_query))
+    except:
+        return url
 
 @app.route('/debug')
 def debug():
@@ -75,14 +75,13 @@ def get_url():
                     })
 
             if not formats_list:
-                return jsonify({"error": "لم نجد أي رابط للفيديو"}), 404
+                return jsonify({"error": "لم نجد أي رابط"}), 404
 
             formats_list.sort(key=lambda x: x['resolution'], reverse=True)
             return jsonify({"formats": formats_list})
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
