@@ -1,8 +1,26 @@
 import os
+import re
 from flask import Flask, request, jsonify
 import yt_dlp
 
 app = Flask(__name__)
+
+def clean_url(url):
+    """تنظيف الرابط وإزالة البارامترات الزائدة"""
+    url = url.strip()
+    
+    # ✅ إزالة lc= (رابط تعليق يوتيوب) وأي بارامتر بعده
+    url = re.sub(r'[&?]lc=[^&]*', '', url)
+    
+    # ✅ إزالة بارامترات زائدة شائعة
+    url = re.sub(r'[&?]si=[^&]*', '', url)
+    url = re.sub(r'[&?]feature=[^&]*', '', url)
+    url = re.sub(r'[&?]pp=[^&]*', '', url)
+    
+    # ✅ تنظيف & أو ? في نهاية الرابط
+    url = re.sub(r'[&?]+$', '', url)
+    
+    return url
 
 @app.route('/get_url', methods=['GET'])
 def get_url():
@@ -10,11 +28,13 @@ def get_url():
     if not video_url:
         return jsonify({"error": "No URL"}), 400
 
-    # ✅ إعدادات خاصة لتيك توك
+    # ✅ نظف الرابط أولاً
+    video_url = clean_url(video_url)
+
     ydl_opts = {
         'quiet': True,
         'no_warnings': True,
-        # ✅ هذا هو الحل الرئيسي لتيك توك
+        'geo_bypass': True,
         'extractor_args': {
             'tiktok': {
                 'app_name': ['trill'],
@@ -22,8 +42,6 @@ def get_url():
                 'manifest_app_version': ['2023401020'],
             }
         },
-        # ✅ تجاهل أخطاء الـ geo-restriction
-        'geo_bypass': True,
     }
 
     try:
@@ -48,9 +66,8 @@ def get_url():
                         "url": url
                     })
 
-            # ✅ Fallback: لو ما لقينا شيء خذ أي URL مباشر
+            # Fallback
             if not formats_list:
-                # جرب تاخذ url مباشر من الـ info
                 direct = info.get('url')
                 if direct:
                     formats_list.append({
@@ -58,22 +75,6 @@ def get_url():
                         "label": "Best Available",
                         "url": direct
                     })
-                else:
-                    # ✅ آخر حل: استخدم format selector تلقائي
-                    ydl_opts2 = {
-                        'quiet': True,
-                        'format': 'best',
-                        'geo_bypass': True,
-                    }
-                    with yt_dlp.YoutubeDL(ydl_opts2) as ydl2:
-                        info2 = ydl2.extract_info(video_url, download=False)
-                        best_url = info2.get('url', '')
-                        if best_url:
-                            formats_list.append({
-                                "resolution": info2.get('height', 0),
-                                "label": "Best Available",
-                                "url": best_url
-                            })
 
             if not formats_list:
                 return jsonify({"error": "لم نجد أي رابط للفيديو"}), 404
