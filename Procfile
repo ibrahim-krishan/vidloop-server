@@ -1,1 +1,1 @@
-install -U yt-dlp && python app.py
+web: gunicorn app:app
